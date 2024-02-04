@@ -1,0 +1,22 @@
+body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: auto;
+    padding: 0;
+}
+
+#game {
+    height: 50%;
+    width: 50%;
+}
+
+#captcha {
+    display: flex;
+}
+
+
+
+
+
+

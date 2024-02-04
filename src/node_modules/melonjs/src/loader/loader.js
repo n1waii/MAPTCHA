@@ -1,0 +1,533 @@
+import * as fileUtil from "./../utils/file.js";
+import * as event from "./../system/event.js";
+import * as audio from "./../audio/audio.js";
+import state from "./../state/state.js";
+import { imgList, tmxList, binList, jsonList } from "./cache.js";
+import { preloadImage } from "./parsers/image.js";
+import { preloadFontFace } from "./parsers/fontface.js";
+import { preloadTMX } from "./parsers/tmx.js";
+import { preloadJSON } from "./parsers/json.js";
+import { preloadBinary } from "./parsers/binary.js";
+import { preloadJavascript } from "./parsers/script.js";
+import { baseURL } from "./settings.js";
+import { warning } from "../lang/console.js";
+
+
+/**
+ * a small class to manage loading of stuff and manage resources
+ * @namespace loader
+ */
+
+// for backward compatibility
+export * from "./settings.js";
+
+/**
+ * onload callback
+ * @default undefined
+ * @memberof loader
+ * @type {function}
+ * @example
+ * // set a callback when everything is loaded
+ * me.loader.onload = this.loaded.bind(this);
+ */
+export let onload;
+
+/**
+ * onProgress callback<br>
+ * each time a resource is loaded, the loader will fire the specified function,
+ * giving the actual progress [0 ... 1], as argument, and an object describing the resource loaded
+ * @default undefined
+ * @memberof loader
+ * @type {function}
+ * @example
+ * // set a callback for progress notification
+ * me.loader.onProgress = this.updateProgress.bind(this);
+ */
+export let onProgress;
+
+/**
+ * onError callback<br>
+ * each time a resource loading is failed, the loader will fire the specified function giving the actual asset as argument.
+ * @default undefined
+ * @memberof loader
+ * @type {function}
+ * @example
+ * // set a callback for error notification
+ * me.loader.onError = this.loaderError.bind(this);
+ */
+export let onError;
+
+/**
+ * list of parser function for supported format type
+ */
+let parsers = new Map();
+
+/**
+ * keep track if parsers were registered
+ */
+let parserInitialized = false;
+
+// flag to check loading status
+let resourceCount = 0;
+let loadCount = 0;
+let timerId = 0;
+
+/**
+ * Assets uploaded with an error
+ */
+const failureLoadedAssets = {};
+
+/**
+ * init all supported parsers
+ * @ignore
+ */
+function initParsers() {
+    setParser("binary", preloadBinary);
+    setParser("image", preloadImage);
+    setParser("json", preloadJSON);
+    setParser("js", preloadJavascript);
+    setParser("tmx", preloadTMX);
+    setParser("tsx", preloadTMX);
+    setParser("audio", audio.load);
+    setParser("fontface", preloadFontFace);
+    parserInitialized = true;
+}
+
+/**
+ * check the loading status
+ * @ignore
+ */
+function checkLoadStatus(onloadcb) {
+    if (loadCount === resourceCount) {
+        // wait 1/2s and execute callback (cheap workaround to ensure everything is loaded)
+        if (typeof onloadcb === "function" || onload) {
+            // make sure we clear the timer
+            clearTimeout(timerId);
+            // trigger the onload callback
+            // we call either the supplied callback (which takes precedence) or the global one
+            let callback = onloadcb || onload;
+            setTimeout(() => {
+                callback();
+                event.emit(event.LOADER_COMPLETE);
+            }, 300);
+        }
+        else {
+            throw new Error("no load callback defined");
+        }
+    }
+    else {
+        timerId = setTimeout(() => {
+            checkLoadStatus(onloadcb);
+        }, 100);
+    }
+}
+
+/**
+ * just increment the number of already loaded resources
+ * @ignore
+ */
+function onResourceLoaded(res) {
+    delete failureLoadedAssets[res.src];
+    // increment the loading counter
+    loadCount++;
+
+    // currrent progress
+    let progress = loadCount / resourceCount;
+
+    // call callback if defined
+    if (typeof onProgress === "function") {
+        // pass the load progress in percent, as parameter
+        onProgress(progress, res);
+    }
+    event.emit(event.LOADER_PROGRESS, progress, res);
+}
+
+/**
+ * on error callback for image loading
+ * @param {loader.Asset} asset - asset that loaded with failure
+ * @ignore
+ */
+function onLoadingError(res) {
+    failureLoadedAssets[res.src] = res;
+    if (this.onError) {
+        this.onError(res);
+    }
+    event.emit(event.LOADER_ERROR, res);
+    throw new Error("Failed loading resource " + res.src);
+}
+
+/**
+ * an asset definition to be used with the loader
+ * @typedef {object} loader.Asset
+ * @property {string} name - name of the asset
+ * @property {string} type  - the type of the asset ("audio"|"binary"|"image"|"json"|"js"|"tmx"|"tmj"|"tsx"|"tsj"|"fontface")
+ * @property {string} [src]  - path and/or file name of the resource (for audio assets only the path is required)
+ * @property {string} [data]  - TMX data if not provided through a src url
+ * @property {boolean} [stream=false] - Set to true to force HTML5 Audio, which allows not to wait for large file to be downloaded before playing.
+ * @see loader.preload
+ * @see loader.load
+ * @example
+ *   // PNG tileset
+ *   {name: "tileset-platformer", type: "image",  src: "data/map/tileset.png"}
+ *   // PNG packed texture
+ *   {name: "texture", type:"image", src: "data/gfx/texture.png"}
+ *   // PNG base64 encoded image
+ *   {name: "texture", type:"image", src: "data:image/png;base64,iVBORw0KAAAQAAAAEACA..."}
+ *   // TSX file
+ *   {name: "meta_tiles", type: "tsx", src: "data/map/meta_tiles.tsx"}
+ *   // TMX level (XML & JSON)
+ *   {name: "map1", type: "tmx", src: "data/map/map1.json"}
+ *   {name: "map2", type: "tmx", src: "data/map/map2.tmx"}
+ *   {name: "map3", type: "tmx", format: "json", data: {"height":15,"layers":[...],"tilewidth":32,"version":1,"width":20}}
+ *   {name: "map4", type: "tmx", format: "xml", data: {xml representation of tmx}}
+ *   // audio resources
+ *   {name: "bgmusic", type: "audio",  src: "data/audio/"}
+ *   {name: "cling",   type: "audio",  src: "data/audio/"}
+ *   // base64 encoded audio resources
+ *   {name: "band",   type: "audio",  src: "data:audio/wav;base64,..."}
+ *   // binary file
+ *   {name: "ymTrack", type: "binary", src: "data/audio/main.ym"}
+ *   // JSON file (used for texturePacker)
+ *   {name: "texture", type: "json", src: "data/gfx/texture.json"}
+ *   // JavaScript file
+ *   {name: "plugin", type: "js", src: "data/js/plugin.js"}
+ *   // Font Face
+ *   { name: "'kenpixel'", type: "fontface",  src: "url('data/font/kenvector_future.woff2')" }
+ */
+
+/**
+ * specify a parser/preload function for the given asset type
+ * @memberof loader
+ * @param {string} type - asset type
+ * @param {function} parserFn - parser function
+ * @see loader.Asset.type
+ * @example
+ * // specify a custom function for "abc" format
+ * function customAbcParser(data, onload, onerror) {
+ *    // preload and do something with the data
+ *    let parsedData = doSomething(data);
+ *    // when done, call the onload callback with the parsed data
+ *    onload(parsedData);
+ *    // in case of error, call the onerror callback
+ *    onerror();
+ *    // return the amount of asset parsed
+ *    return 1
+ * }
+ * // set the parser for the custom format
+ * loader.setParser("abc", customAbcParser);
+ */
+export function setParser(type, parserFn) {
+    if (typeof parserFn !== "function") {
+        throw new Error("invalid parser function for " + type);
+    }
+
+    if (typeof parsers.get(type) !== "undefined") {
+        warning("overriding parser for " + type + " format");
+    }
+
+    parsers.set(type, parserFn);
+}
+
+/**
+ * set all the specified game assets to be preloaded.
+ * @memberof loader
+ * @param {loader.Asset[]} assets - list of assets to load
+ * @param {Function} [onloadcb=loader.onload] - function to be called when all resources are loaded
+ * @param {boolean} [switchToLoadState=true] - automatically switch to the loading screen
+ * @example
+ * game.assets = [
+ *   // PNG tileset
+ *   {name: "tileset-platformer", type: "image",  src: "data/map/tileset.png"},
+ *   // PNG packed texture
+ *   {name: "texture", type:"image", src: "data/gfx/texture.png"}
+ *   // PNG base64 encoded image
+ *   {name: "texture", type:"image", src: "data:image/png;base64,iVBORw0KAAAQAAAAEACA..."}
+ *   // TSX file
+ *   {name: "meta_tiles", type: "tsx", src: "data/map/meta_tiles.tsx"},
+ *   // TMX level (XML & JSON)
+ *   {name: "map1", type: "tmx", src: "data/map/map1.json"},
+ *   {name: "map2", type: "tmx", src: "data/map/map2.tmx"},
+ *   {name: "map3", type: "tmx", format: "json", data: {"height":15,"layers":[...],"tilewidth":32,"version":1,"width":20}},
+ *   {name: "map4", type: "tmx", format: "xml", data: {xml representation of tmx}},
+ *   // audio resources
+ *   {name: "bgmusic", type: "audio",  src: "data/audio/"},
+ *   {name: "cling",   type: "audio",  src: "data/audio/"},
+ *   // base64 encoded audio resources
+ *   {name: "band",   type: "audio",  src: "data:audio/wav;base64,..."},
+ *   // binary file
+ *   {name: "ymTrack", type: "binary", src: "data/audio/main.ym"},
+ *   // JSON file (used for texturePacker)
+ *   {name: "texture", type: "json", src: "data/gfx/texture.json"},
+ *   // JavaScript file
+ *   {name: "plugin", type: "js", src: "data/js/plugin.js"},
+ *   // Font Face
+ *   { name: "'kenpixel'", type: "fontface",  src: "url('data/font/kenvector_future.woff2')" }
+ * ];
+ * ...
+ * // set all resources to be loaded
+ * me.loader.preload(game.assets, () => this.loaded());
+ */
+export function preload(assets, onloadcb, switchToLoadState = true) {
+    // parse the resources
+    for (let i = 0; i < assets.length; i++) {
+        resourceCount += load(
+            assets[i],
+            onResourceLoaded.bind(this, assets[i]),
+            onLoadingError.bind(this, assets[i])
+        );
+    }
+    // set the onload callback if defined
+    if (typeof(onloadcb) !== "undefined") {
+        onload = onloadcb;
+    }
+
+    if (switchToLoadState === true) {
+        // swith to the loading screen
+        state.change(state.LOADING);
+    }
+
+    // check load status
+    checkLoadStatus(onload);
+}
+
+/**
+ * retry loading assets after a loading failure
+ * @memberof loader
+ * @param {string} src - src of asset to reload
+ * @example
+ *  event.on(
+ *      event.LOADER_ERROR,
+ *      (res) => {
+ *          // custom function
+ *          showErrorNotification({
+ *              text: `Error during loading content: ${res.name}`,
+ *              done: loader.reload(res.src);
+ *          })
+ *      }
+ *  );
+**/
+export function reload(src) {
+    const assetToReload = failureLoadedAssets[src];
+    this.unload(assetToReload);
+    resourceCount -= 1;
+    resourceCount += this.load(
+        assetToReload,
+        this.onResourceLoaded.bind(this, assetToReload),
+        this.onLoadingError.bind(this, assetToReload)
+    );
+    // check load status
+    checkLoadStatus(this.onload);
+}
+
+/**
+ * Load a single asset (to be used if you need to load additional asset(s) during the game)
+ * @memberof loader
+ * @param {loader.Asset} asset
+ * @param {Function} [onload] - function to be called when the asset is loaded
+ * @param {Function} [onerror] - function to be called in case of error
+ * @returns {number} the amount of corresponding resource to be preloaded
+ * @example
+ * // load an image asset
+ * me.loader.load({name: "avatar",  type:"image",  src: "data/avatar.png"}, () => this.onload(), () => this.onerror());
+ * // load a base64 image asset
+ *  me.loader.load({name: "avatar", type:"image", src: "data:image/png;base64,iVBORw0KAAAQAAAAEACA..."};
+ * // start loading music
+ * me.loader.load({
+ *     name   : "bgmusic",
+ *     type   : "audio",
+ *     src    : "data/audio/"
+ * }, function () {
+ *     me.audio.play("bgmusic");
+ * });
+ */
+export function load(asset, onload, onerror) {
+
+    // make sure all parsers have been initialized
+    if (parserInitialized === false) {
+        initParsers();
+    }
+
+    // transform the url if necessary
+    if (typeof (baseURL[asset.type]) !== "undefined") {
+        asset.src = baseURL[asset.type] + asset.src;
+    }
+
+    let parser = parsers.get(asset.type);
+
+    if (typeof parser === "undefined") {
+        throw new Error("load : unknown or invalid resource type : " + asset.type);
+    }
+
+    // parser returns the amount of asset to be loaded (usually 1 unless an asset is splitted into several ones)
+    return parser.call(this, asset, onload, onerror);
+}
+
+/**
+ * unload the specified asset to free memory
+ * @memberof loader
+ * @param {loader.Asset} asset
+ * @returns {boolean} true if unloaded
+ * @example me.loader.unload({name: "avatar",  type:"image"});
+ */
+export function unload(asset) {
+    switch (asset.type) {
+        case "binary":
+            if (!(asset.name in binList)) {
+                return false;
+            }
+
+            delete binList[asset.name];
+            return true;
+
+        case "image":
+            if (!(asset.name in imgList)) {
+                return false;
+            }
+            delete imgList[asset.name];
+            return true;
+
+        case "json":
+            if (!(asset.name in jsonList)) {
+                return false;
+            }
+
+            delete jsonList[asset.name];
+            return true;
+
+        case "js":
+            // ??
+            return true;
+
+        case "fontface":
+            // ??
+            return true;
+
+        case "tmx":
+        case "tsx":
+            if (!(asset.name in tmxList)) {
+                return false;
+            }
+
+            delete tmxList[asset.name];
+            return true;
+
+        case "audio":
+            return audio.unload(asset.name);
+
+        default:
+            throw new Error("unload : unknown or invalid resource type : " + asset.type);
+    }
+}
+
+/**
+ * unload all resources to free memory
+ * @memberof loader
+ * @example me.loader.unloadAll();
+ */
+export function unloadAll() {
+    let name;
+
+    // unload all binary resources
+    for (name in binList) {
+        if (binList.hasOwnProperty(name)) {
+            unload({
+                "name" : name,
+                "type" : "binary"
+            });
+        }
+    }
+
+    // unload all image resources
+    for (name in imgList) {
+        if (imgList.hasOwnProperty(name)) {
+            unload({
+                "name" : name,
+                "type" : "image"
+            });
+        }
+    }
+
+    // unload all tmx resources
+    for (name in tmxList) {
+        if (tmxList.hasOwnProperty(name)) {
+            unload({
+                "name" : name,
+                "type" : "tmx"
+            });
+        }
+    }
+
+    // unload all in json resources
+    for (name in jsonList) {
+        if (jsonList.hasOwnProperty(name)) {
+            unload({
+                "name" : name,
+                "type" : "json"
+            });
+        }
+    }
+
+    // unload all audio resources
+    audio.unloadAll();
+}
+
+/**
+ * return the specified TMX/TSX object
+ * @memberof loader
+ * @param {string} elt - name of the tmx/tsx element ("map1");
+ * @returns {object} requested element or null if not found
+ */
+export function getTMX(elt) {
+    // force as string
+    elt = "" + elt;
+    if (elt in tmxList) {
+        return tmxList[elt];
+    }
+    return null;
+}
+
+/**
+ * return the specified Binary object
+ * @memberof loader
+ * @param {string} elt - name of the binary object ("ymTrack");
+ * @returns {object} requested element or null if not found
+ */
+export function getBinary(elt) {
+    // force as string
+    elt = "" + elt;
+    if (elt in binList) {
+        return binList[elt];
+    }
+    return null;
+}
+
+/**
+ * return the specified Image Object
+ * @memberof loader
+ * @param {string} image - name of the Image element ("tileset-platformer");
+ * @returns {HTMLImageElement} requested element or null if not found
+ */
+export function getImage(image) {
+    // force as string and extract the base name
+    image = fileUtil.getBasename("" + image);
+    if (image in imgList) {
+        // return the corresponding Image object
+        return imgList[image];
+    }
+    return null;
+}
+
+/**
+ * return the specified JSON Object
+ * @memberof loader
+ * @param {string} elt - name of the json file to load
+ * @returns {object}
+ */
+export function getJSON(elt) {
+    // force as string
+    elt = "" + elt;
+    if (elt in jsonList) {
+        return jsonList[elt];
+    }
+    return null;
+}
