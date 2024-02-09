@@ -1,7 +1,10 @@
 const express = require("express");
-var svgCaptcha = require('svg-captcha');
+const cookieParser = require('cookie-parser');
+const svgCaptcha = require('svg-captcha');
 
 const app = express();
+
+app.use(cookieParser());
 
 const FOODS = [
     "chicken", "donut", "fries", "hotdog", "pizza"
@@ -9,14 +12,26 @@ const FOODS = [
 
 
 app.get("/", (req, res) => {
-    res.sendFile(__dirname + "/public/index.html");
+    var cookie = req.cookies.completed;
+    console.log(cookie);
+    if (cookie === undefined) {
+        res.sendFile(__dirname + "/public/index.html");
+    } else {
+        res.send("Thank you for completing the challenge.")
+    }
+    //res.cookie('completed', 'true').send('cookie set')
+   // res.sendFile(__dirname + "/public/index.html");
+});
+
+app.get("/complete", (req, res) => {
+	res.cookie("completed", "true").send("Thank you for completing the challenge.") 
 });
 
 
 app.get("/captcha", (req, res) => {
     var captcha = svgCaptcha.create({
         fixedText: FOODS[Math.floor(Math.random()*FOODS.length)],
-        noise: 10,
+        noise: 15,
     });
 	//req.session.captcha = captcha.text;
 	res.type('svg');

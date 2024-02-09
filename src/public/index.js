@@ -129,12 +129,18 @@ class Main extends Phaser.Scene
 
     nextRound = async () => {
         //nextCollection();
-        return changeChosenFood().then(() => {
-            ExperimentController.advanceRound();
-            updateProgressBar();
-
-            this.setOrbColors(); // some weird error here 
-        });
+        if ((ExperimentController.getRoundNumber()+1) === TOTAL_ROUNDS) {
+            console.log("research complete")
+            window.location.replace(window.location.href + "complete");
+        } else {
+            return changeChosenFood().then(() => {
+                ExperimentController.advanceRound();
+                updateProgressBar();
+    
+                this.setOrbColors(); // some weird error here 
+            });
+        }
+       
     } 
 
     onMouseDown = (pointer, currentlyOver) => {

@@ -8,7 +8,7 @@ let totalExperimentData = {
 }
 
 let roundExperimentData = {
-    TotalClicks: 0,
+    Clicks: 0,
     MouseDist: 0,
     TimeTaken: 0,
     Colls: 0
@@ -18,7 +18,7 @@ let roundNumber = 1;
 
 function resetRoundExperimentData() {
     roundExperimentData = {
-        TotalClicks: 0,
+        Clicks: 0,
         MouseDist: 0,
         TimeTaken: 0,
         Colls: 0
@@ -38,7 +38,7 @@ const ExperimentController = {
     advanceRound: () => {
         roundNumber += 1;
     
-        totalExperimentData.TotalClicks += roundExperimentData.TotalClicks;
+        totalExperimentData.TotalClicks += roundExperimentData.Clicks;
         totalExperimentData.CorrectClicks += 1;
         totalExperimentData.TotalTime += roundExperimentData.TimeTaken;
         totalExperimentData.TotalColls += roundExperimentData.Colls;
@@ -49,8 +49,8 @@ const ExperimentController = {
         resetRoundExperimentData();
     },
     
-    incTotalClicks: () => {
-        roundExperimentData.TotalClicks += 1
+    incClicks: () => {
+        roundExperimentData.Clicks += 1
     },
     
     incColls: () => {
