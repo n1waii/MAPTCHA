@@ -4,7 +4,7 @@ const DOC_WIDTH = window.innerWidth;
 const CANVAS_HEIGHT = DOC_HEIGHT * .7;
 const CANVAS_WIDTH = DOC_WIDTH * .5;
 
-const TOTAL_ROUNDS = 5;
+const TOTAL_ROUNDS = 6;
 const ORB_NUM = 5;
 const ORB_WIDTH = 100;
 const ORB_HEIGHT = 100;
@@ -14,9 +14,10 @@ const FOODS = [
     "chicken", "donut", "fries", "hotdog", "pizza"
 ]
 
-const PhaserPhysics = Phaser.Physics.Arcade.ArcadePhysics
+const PhaserPhysics = Phaser.Physics.Arcade.ArcadePhysics;
 
-let chosenFood = ""
+let chosenFood = "";
+let lastTime = 0;
 
 async function changeChosenFood() {
     return fetch("./captcha", {
@@ -72,6 +73,8 @@ class Main extends Phaser.Scene
         this.input.on('pointerdown', this.onMouseDown);
 
         this.createOrbs();
+        const d = new Date();
+        lastTime = d.getTime();;
         //this.refreshRound();
     }
 
@@ -129,15 +132,32 @@ class Main extends Phaser.Scene
 
     nextRound = async () => {
         //nextCollection();
-        if ((ExperimentController.getRoundNumber()+1) === TOTAL_ROUNDS) {
-            console.log("research complete")
+        let d = new Date();
+        let time = d.getTime();
+        ExperimentController.setTimeTaken(time-lastTime);
+        ExperimentController.advanceRound();
+        updateProgressBar();
+
+        if ((ExperimentController.getRoundNumber()) === TOTAL_ROUNDS) {
+            ExperimentController.resetRoundNumber();
+            fetch("./add-data", {
+                method: "POST",
+                body: JSON.stringify(ExperimentController.getTotalExperimentData()),
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            });
             window.location.replace(window.location.href + "complete");
+            console.log("research complete")
+            console.log(ExperimentController.getTotalExperimentData());
         } else {
-            return changeChosenFood().then(() => {
-                ExperimentController.advanceRound();
-                updateProgressBar();
+            
+            return changeChosenFood().then(() => {                
     
                 this.setOrbColors(); // some weird error here 
+
+                d = new Date() 
+                lastTime = d.getTime();
             });
         }
        
@@ -146,10 +166,16 @@ class Main extends Phaser.Scene
     onMouseDown = (pointer, currentlyOver) => {
         let worldX = pointer.worldX;
         let worldY = pointer.worldY;
-        console.log(currentlyOver);
+        ExperimentController.incClicks();
         for (const orbContainer of currentlyOver) {
             console.log(orbContainer.name);
             if (orbContainer.name == chosenFood) {
+                let distX = (30+orbContainer.x-pointer.x);
+                let distY = (30+orbContainer.y-pointer.y);
+                
+                let dist = Math.sqrt(Math.pow(distX, 2) + Math.pow(distY, 2));
+
+                ExperimentController.setMouseDist(dist);
                 this.removeOrbs();
                 this.nextRound().then(() => {
                     setTimeout(this.createOrbs, 500);
@@ -163,6 +189,7 @@ class Main extends Phaser.Scene
     onBoundaryCollision = (body) => {
         const { gameObject } = body; // gameObject is the container
         if (gameObject.name == chosenFood) {
+            ExperimentController.incColls();
             changeChosenFood().then(() => {
                 this.setOrbColors(); // some weird error here 
             });

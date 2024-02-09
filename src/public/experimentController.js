@@ -2,9 +2,12 @@ let totalExperimentData = {
     TotalClicks: 0,
     CorrectClicks: 0,
     AvgMouseDist: 0,
+    AvgTime: 0,
     TotalTime: 0,
     TotalColls: 0,
     Times: [],
+    MouseDists: [],
+
 }
 
 let roundExperimentData = {
@@ -30,21 +33,40 @@ const ExperimentController = {
     getRoundExperimentData: () => {
         return roundExperimentData
     },
+
+    getTotalExperimentData: () => {
+        return totalExperimentData;
+    },
     
     getRoundNumber: () => {
-        return roundNumber
+        return roundNumber;
     },
+    
+    resetRoundNumber: () => {
+        return roundNumber = 1;
+    },
+
+    cleanExperimentData: () => {
+        let distSum = totalExperimentData.MouseDists.reduce((partialSum, a) => partialSum + a, 0);
+        let timeSum = totalExperimentData.Times.reduce((partialSum, a) => partialSum + a, 0);
+        totalExperimentData.AvgMouseDist = distSum / totalExperimentData.MouseDists.length;
+        totalExperimentData.AvgTime = timeSum / totalExperimentData.Times.length;
+
+    },  
     
     advanceRound: () => {
         roundNumber += 1;
+
+        console.log(roundExperimentData);
     
         totalExperimentData.TotalClicks += roundExperimentData.Clicks;
         totalExperimentData.CorrectClicks += 1;
         totalExperimentData.TotalTime += roundExperimentData.TimeTaken;
         totalExperimentData.TotalColls += roundExperimentData.Colls;
-        totalExperimentData.AvgMouseDist = (totalExperimentData.AvgMouseDist + roundExperimentData.MouseDist)/roundNumber;
-        totalExperimentData.AvgTimePerRound = (totalExperimentData.AvgTimePerRound + roundExperimentData.TimeTaken)/roundNumber;
+        totalExperimentData.MouseDists.push(roundExperimentData.MouseDist);
         totalExperimentData.Times.push(roundExperimentData.TimeTaken);
+
+        ExperimentController.cleanExperimentData();
     
         resetRoundExperimentData();
     },
