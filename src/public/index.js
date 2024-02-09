@@ -19,7 +19,11 @@ const PhaserPhysics = Phaser.Physics.Arcade.ArcadePhysics;
 let chosenFood = "";
 let lastTime = 0;
 
-async function changeChosenFood() {
+function changeChosenFood() {
+    chosenFood = FOODS[Math.floor(Math.random()*FOODS.length)];
+    document.getElementById("captchaFrame").innerHTML = CAPTCHA_FRAMES[chosenFood];
+    
+    /*
     return fetch("./captcha", {
         method: 'GET',
     })
@@ -27,12 +31,15 @@ async function changeChosenFood() {
             return response.json();
         })
         .then(json => { 
+            console.log(json.text);
+            console.log(json.data);
             document.getElementById("captchaFrame").innerHTML = json.data;
             chosenFood = json.text;
             //document.body.innerHTML += json.data;
             return true;
         })
         .catch(err => console.log(err));
+    */
 }
 
 
@@ -130,7 +137,7 @@ class Main extends Phaser.Scene
     }
 
 
-    nextRound = async () => {
+    nextRound = () => {
         //nextCollection();
         let d = new Date();
         let time = d.getTime();
@@ -152,13 +159,12 @@ class Main extends Phaser.Scene
             console.log(ExperimentController.getTotalExperimentData());
         } else {
             
-            return changeChosenFood().then(() => {                
-    
-                this.setOrbColors(); // some weird error here 
-
-                d = new Date() 
-                lastTime = d.getTime();
-            });
+            changeChosenFood();
+            this.setOrbColors();
+            d = new Date();
+            lastTime = d.getTime();
+            
+        
         }
        
     } 
@@ -177,9 +183,9 @@ class Main extends Phaser.Scene
 
                 ExperimentController.setMouseDist(dist);
                 this.removeOrbs();
-                this.nextRound().then(() => {
-                    setTimeout(this.createOrbs, 500);
-                });
+                this.nextRound();
+                setTimeout(this.createOrbs, 500);
+            
                 break;
             }
         }
@@ -190,9 +196,9 @@ class Main extends Phaser.Scene
         const { gameObject } = body; // gameObject is the container
         if (gameObject.name == chosenFood) {
             ExperimentController.incColls();
-            changeChosenFood().then(() => {
-                this.setOrbColors(); // some weird error here 
-            });
+            changeChosenFood();
+            this.setOrbColors(); // some weird error here 
+            
         }
     }
 
@@ -262,6 +268,5 @@ const config = {
 
 
 
-changeChosenFood().then(() => {
-    const game = new Phaser.Game(config);
-})
+changeChosenFood();
+const game = new Phaser.Game(config);

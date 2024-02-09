@@ -5,7 +5,7 @@ const svgCaptcha = require('svg-captcha');
 const bodyParser = require("body-parser");
 const ExperimentData = require("./model/experimentData.js");
 
-const dbURL = "mongodb+srv://nigamdahal:" + process.env.DBPASS + "@cluster0.wjz3e6f.mongodb.net/?retryWrites=true&w=majority";
+const dbURL = "mongodb+srv://nigamdahal:" + (process.env.DBPASS) + "@cluster0.wjz3e6f.mongodb.net/?retryWrites=true&w=majority";
 const app = express();
 
 
@@ -73,7 +73,6 @@ app.get("/captcha", (req, res) => {
 	//req.session.captcha = captcha.text;
 	res.type('svg');
 	res.status(200).send(captcha);
-    
 });
 
 
